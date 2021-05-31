@@ -2,12 +2,13 @@ import re
 import jieba
 
 import pandas as pd
-import numpy as np
+from tqdm import tqdm
 
 from collections import Counter
 
-
 punctuation = "，。！……？（）【】~!@#$%^&*()_+`{}|\[\]\:\";\-\\\='<>?,./"
+
+
 
 def convert_waimai_data_to_uniform_txt_corpus(file_path, is_remove_punctuation=True):
     df = pd.read_csv(file_path)
@@ -71,18 +72,68 @@ class Corpus(object):
         return corpus_to_id
 
 
+def get_waimai_dataset(file_path, is_remove_punctuation=True, vocab_size=1000, max_sentence_len=15, padding=True):
+    df = pd.read_csv(file_path)
+    review = df['review']
+
+    # remove the punctuation, build vocab
+    review_split = []
+    words = []
+    for s in tqdm(review):
+        if is_remove_punctuation:
+            s = re.sub(r'[{}]+'.format(punctuation), ' ', s)
+        s = [w for w in jieba.cut(s) if w.strip()]
+        review_split.append(s)
+        words.extend(s)
+
+    vocab = dict(Counter(words).most_common(vocab_size))
+
+    word_to_id = {'UNK': -1, 'PAD': -2}
+    id_to_word = {-1: 'UNK', 'PAD': -2}
+    reserved_len = len(word_to_id)
+
+    for i, k in enumerate(vocab.keys()):
+        if i < (vocab_size - reserved_len):
+            word_to_id[k] = i
+            id_to_word[i] = k
+
+    # convert word to index
+    reveiw_index = []
+    for r in tqdm(review_split):
+        r_index = []
+        for w in r:
+            if w in word_to_id.keys():
+                r_index.append(word_to_id[w])
+            else:
+                r_index.append(word_to_id['UNK'])
+        if padding and len(r_index) < max_sentence_len:
+            for i in range(max_sentence_len - len(r_index)):
+                r_index.append(word_to_id['PAD'])
+
+        reveiw_index.append(r_index)
+
+    df['review_split'] = review_split
+    df['review_index'] = reveiw_index
+
+    return df
+
+
+
 
 if __name__ == '__main__':
     file_path = '../data/waimai_10k.csv'
-    waimai_data, waimai_label = convert_waimai_data_to_uniform_txt_corpus(file_path)
-    print('waimai_data: {}'.format(len(waimai_data)))
-    print('waimai_label: {}'.format(len(waimai_label)))
-    print('X_sample: {}, y_sample: {}'.format(waimai_data[0], waimai_label[0]))
-
-    max_sentence_len = 15
-    corpus = Corpus(waimai_data, vocab_size=5000)
-    corpus_indexed = corpus.encoding_corpus_to_index(max_sentence_len)
-
-    print('word frequency: {}'.format(corpus.word_frequency[:5]))
-    print('index: {}'.format(corpus_indexed[0]))
-    print('string: {}'.format([corpus.id_to_word[id] for id in corpus_indexed[0]]))
+    # waimai_data, waimai_label = convert_waimai_data_to_uniform_txt_corpus(file_path)
+    # print('waimai_data: {}'.format(len(waimai_data)))
+    # print('waimai_label: {}'.format(len(waimai_label)))
+    # print('X_sample: {}, y_sample: {}'.format(waimai_data[0], waimai_label[0]))
+    #
+    # max_sentence_len = 15
+    # corpus = Corpus(waimai_data, vocab_size=5000)
+    # corpus_indexed = corpus.encoding_corpus_to_index(max_sentence_len)
+    #
+    # print('word frequency: {}'.format(corpus.word_frequency[:5]))
+    # print('index: {}'.format(corpus_indexed[0]))
+    # print('string: {}'.format([corpus.id_to_word[id] for id in corpus_indexed[0]]))
+    waimai_dataset = get_waimai_dataset(file_path, is_remove_punctuation=True, vocab_size=1000,
+                                        max_sentence_len=15, padding=True)
+    print(waimai_dataset.head())
